@@ -135,6 +135,24 @@ export class AgentHostStateManager extends Disposable {
 	}
 
 	/**
+	 * Returns the summaries of every session that has been announced to
+	 * clients via {@link NotificationType.SessionAdded} — i.e. every
+	 * non-provisional session whose `sessionAdded` notification has been
+	 * fired (whether eagerly by {@link createSession} or deferred by
+	 * {@link createSession}+{@link markSessionPersisted}, or restored via
+	 * {@link restoreSession}). Provisional sessions are excluded so they
+	 * stay out of client session lists until persisted.
+	 *
+	 * Used by {@link IAgentService.listSessions} to overlay live sessions
+	 * onto the providers' list so clients never transiently drop a session
+	 * whose provider-side `listSessions` lags briefly behind a
+	 * `sessionAdded` notification or a `session/turnComplete` action.
+	 */
+	getAnnouncedSessionSummaries(): SessionSummary[] {
+		return [...this._lastNotifiedSummaries.values()];
+	}
+
+	/**
 	 * Returns all session URIs whose keys start with the given prefix.
 	 * Used to discover subagent sessions for a given parent.
 	 */

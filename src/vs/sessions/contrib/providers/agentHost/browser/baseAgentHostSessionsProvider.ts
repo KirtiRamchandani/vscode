@@ -1057,6 +1057,16 @@ export abstract class BaseAgentHostSessionsProvider extends Disposable implement
 	get sessionTypes(): readonly ISessionType[] { return this._sessionTypes; }
 	protected _sessionTypes: ISessionType[] = [];
 
+	/**
+	 * Last-known agent-level customizations snapshot keyed by provider, used
+	 * by {@link _syncSessionTypesFromRootState} to decide whether the
+	 * customization-changed events need to fire. Without this gate, every
+	 * `rootState.onDidChange` (including `activeSessionsChanged`, which has
+	 * no customization content) cascades through the customization service
+	 * and re-hydrates in-flight chat session bubbles mid-turn.
+	 */
+	private _lastAgentCustomizations: readonly Customization[][] = [];
+
 	protected readonly _onDidChangeSessionTypes = this._register(new Emitter<void>());
 	readonly onDidChangeSessionTypes: Event<void> = this._onDidChangeSessionTypes.event;
 
@@ -1252,8 +1262,18 @@ export abstract class BaseAgentHostSessionsProvider extends Disposable implement
 	 * id/label set actually changed.
 	 */
 	protected _syncSessionTypesFromRootState(rootState: RootState): void {
-		this._onDidChangeCustomAgents.fire();
-		this._onDidChangeCustomizations.fire();
+		// Only fire customization-changed events when the agent-level
+		// customization payload actually changed. `rootState.onDidChange`
+		// fires for every root delta (e.g. `activeSessionsChanged` on every
+		// turn start/complete) — firing unconditionally caused the chat
+		// session bubble to be re-hydrated mid-turn, which dropped the
+		// streamed response before the `turnComplete` ack arrived.
+		const nextAgentCustomizations = rootState.agents.map(a => a.customizations ?? []);
+		if (!equals(this._lastAgentCustomizations, nextAgentCustomizations)) {
+			this._lastAgentCustomizations = nextAgentCustomizations;
+			this._onDidChangeCustomAgents.fire();
+			this._onDidChangeCustomizations.fire();
+		}
 		const next = rootState.agents.map((agent): ISessionType => ({
 			id: agent.provider,
 			label: this._formatSessionTypeLabel(agent.displayName?.trim() || agent.provider),

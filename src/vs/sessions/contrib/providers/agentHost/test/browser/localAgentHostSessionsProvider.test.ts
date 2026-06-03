@@ -945,12 +945,41 @@ suite('LocalAgentHostSessionsProvider', () => {
 		let fired = 0;
 		disposables.add(provider.onDidChangeCustomAgents(() => { fired++; }));
 
-		// Root state change should fire the event.
+		// A root state change that ALSO changes agent-level customizations
+		// should fire the event. Root state changes without customization
+		// churn (e.g. activeSessionsChanged on every turn start/complete)
+		// must NOT fire — firing on those caused chat session bubbles to be
+		// re-hydrated mid-turn, dropping streamed responses.
 		agentHost.setAgents([
-			{ provider: 'copilotcli', displayName: 'Copilot', description: '', models: [] } as AgentInfo,
+			{
+				provider: 'copilotcli', displayName: 'Copilot', description: '', models: [],
+				customizations: [{
+					type: CustomizationType.Plugin,
+					id: 'plugin://root',
+					uri: 'plugin://root',
+					name: 'root plugin',
+					enabled: true,
+				}],
+			} as AgentInfo,
 		]);
 		const afterRoot = fired;
-		assert.ok(afterRoot > 0, 'expected event to fire on root state change');
+		assert.ok(afterRoot > 0, 'expected event to fire on root state change that updates customizations');
+
+		// A subsequent root state change that does NOT alter the
+		// customization payload must NOT fire the event.
+		agentHost.setAgents([
+			{
+				provider: 'copilotcli', displayName: 'Copilot', description: '', models: [],
+				customizations: [{
+					type: CustomizationType.Plugin,
+					id: 'plugin://root',
+					uri: 'plugin://root',
+					name: 'root plugin',
+					enabled: true,
+				}],
+			} as AgentInfo,
+		]);
+		assert.strictEqual(fired, afterRoot, 'expected event NOT to fire when root state change leaves customizations unchanged');
 
 		// Session-state update with new customizations should fire it again.
 		provider.getSessionConfig(session!.sessionId);
