@@ -911,6 +911,7 @@ export class CopilotCLISession extends DisposableStore implements ICopilotCLISes
 		private readonly _agentName: string | undefined,
 		private readonly _sdkSession: Session,
 		private readonly _additionalWorkspaces: IWorkspaceInfo[],
+		private readonly _sandboxEnabled: boolean,
 		@ILogService private readonly logService: ILogService,
 		@IWorkspaceService private readonly workspaceService: IWorkspaceService,
 		@IChatSessionMetadataStore private readonly _chatSessionMetadataStore: IChatSessionMetadataStore,
@@ -1243,6 +1244,12 @@ export class CopilotCLISession extends DisposableStore implements ICopilotCLISes
 				// Auto-approve all requests when the permission level allows it.
 				if (effectivePermissionLevel === 'autoApprove' || effectivePermissionLevel === 'autopilot') {
 					this.logService.trace(`[CopilotCLISession] Auto Approving ${permissionRequest.kind} request (permission level: ${effectivePermissionLevel})`);
+					this._sdkSession.respondToPermission(requestId, { kind: 'approve-once' });
+					return;
+				}
+
+				if (permissionRequest.kind === 'shell' && this._sandboxEnabled) {
+					this.logService.trace(`[CopilotCLISession] Auto Approving shell request (sandbox is enabled)`);
 					this._sdkSession.respondToPermission(requestId, { kind: 'approve-once' });
 					return;
 				}

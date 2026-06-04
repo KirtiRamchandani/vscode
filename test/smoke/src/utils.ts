@@ -10,6 +10,9 @@ import { Application, ApplicationOptions, Logger } from '../../automation';
 export interface MockLlmServer {
 	readonly url: string;
 	requestCount(): number;
+	completionCount(): number;
+	waitForRequests(n: number, timeoutMs: number): Promise<void>;
+	waitForCompletion(n: number, timeoutMs: number): Promise<void>;
 	close(): Promise<void>;
 }
 

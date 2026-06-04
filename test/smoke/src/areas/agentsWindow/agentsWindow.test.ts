@@ -39,7 +39,30 @@ export function setup(logger: Logger) {
 
 			// One scenario per session type, each emitting a distinct reply
 			// so the assertion is unambiguous.
-			registerScenario(COPILOT_SCENARIO_ID, new ScenarioBuilder().emit(COPILOT_REPLY).build());
+			//
+			// The Copilot CLI scenario is multi-turn: first the model invokes
+			// the CLI's shell tool (`bash` on macOS/Linux, `pwsh`/`powershell` on
+			// Windows — the Copilot-CLI equivalent of the VS Code chat
+			// `run_in_terminal` tool) with `echo COPILOT_REPLY`, then on the
+			// follow-up turn the mock echoes the entire last request message
+			// (the tool result, including the shell command's stdout) back as
+			// JSON. This proves the command ran end-to-end and lets us inspect
+			// the full tool-result payload in the UI.
+			registerScenario(COPILOT_SCENARIO_ID, {
+				type: 'multi-turn',
+				turns: [
+					{
+						kind: 'tool-calls',
+						toolCalls: [
+							{
+								toolNamePattern: /^(bash|pwsh|powershell)$/i,
+								arguments: { command: `echo ${COPILOT_REPLY}` },
+							},
+						],
+					},
+					{ kind: 'echo-last-message' },
+				],
+			});
 			registerScenario(LOCAL_SCENARIO_ID, new ScenarioBuilder().emit(LOCAL_REPLY).build());
 			registerScenario(CLAUDE_SCENARIO_ID, new ScenarioBuilder().emit(CLAUDE_REPLY).build());
 
@@ -74,11 +97,15 @@ export function setup(logger: Logger) {
 			// githubMcpServer is disabled to prevent a real-network MCP connection
 			// to the GitHub MCP server during the test.
 			// sessions.chat.localAgent.enabled exposes the "Local" session type.
+			// chat.cli.sandbox.enabled turns on Copilot-CLI sandboxing so the
+			// `bash`/`powershell` tool call in the Copilot CLI test runs through
+			// the sandbox path.
 			await app.workbench.settingsEditor.addUserSettings([
 				['github.copilot.advanced.debug.overrideProxyUrl', JSON.stringify(mockServer.url)],
 				['chat.allowAnonymousAccess', 'true'],
 				['github.copilot.chat.githubMcpServer.enabled', 'false'],
 				['sessions.chat.localAgent.enabled', 'true'],
+				['github.copilot.chat.cli.sandbox.enabled', '"on"'],
 			]);
 
 			// `--enable-smoke-test-driver` (set by the runner) skips the auth dialog.
