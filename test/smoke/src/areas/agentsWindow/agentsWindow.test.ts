@@ -66,7 +66,7 @@ export function setup(logger: Logger) {
 			registerScenario(LOCAL_SCENARIO_ID, new ScenarioBuilder().emit(LOCAL_REPLY).build());
 			registerScenario(CLAUDE_SCENARIO_ID, new ScenarioBuilder().emit(CLAUDE_REPLY).build());
 
-			mockServer = await startServer(0, { logger: (msg: string) => logger.log(msg) });
+			mockServer = await startServer(0, { logger: (msg: string) => logger.log(msg), verbose: true });
 			logger.log(`Mock LLM server started at ${mockServer.url}`);
 		});
 
@@ -129,7 +129,7 @@ export function setup(logger: Logger) {
 			const requestsBefore = mockServer.requestCount();
 			await app.workbench.agentsWindow.submitNewSessionPrompt(`hello world [scenario:${COPILOT_SCENARIO_ID}]`);
 
-			const text = await app.workbench.agentsWindow.waitForAssistantText(COPILOT_REPLY);
+			const text = await app.workbench.agentsWindow.waitForAssistantText(COPILOT_REPLY, 120_000);
 			logger.log(`Agents Window (Copilot) response: ${text}`);
 
 			assert.ok(

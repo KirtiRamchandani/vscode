@@ -258,6 +258,14 @@ const skippedMissionControlEventTypes = new Set([
 	'session.tools_updated',
 ]);
 
+function truncateForLog(value: unknown, maxLen = 2000): string {
+	const text = typeof value === 'string' ? value : String(value);
+	if (text.length <= maxLen) {
+		return text;
+	}
+	return text.slice(0, maxLen) + `… [truncated, ${text.length - maxLen} more chars]`;
+}
+
 function shouldForwardMissionControlEvent(event: { type?: string; data?: unknown }): boolean {
 	const eventType = event.type ?? 'unknown';
 	if (skippedMissionControlEventTypes.has(eventType)) {
@@ -1236,6 +1244,10 @@ export class CopilotCLISession extends DisposableStore implements ICopilotCLISes
 			disposables.add(toDisposable(this._sdkSession.on('*', (event) => {
 				// Forward events to Mission Control if remote control is active
 				this._bufferMcEvent(event);
+				// Diagnostic logging — surfaces tool inputs/outputs in the
+				// extension log so failures (e.g. sandboxed command exits)
+				// can be debugged without instrumenting the runtime.
+				this._logSessionEvent(event);
 			})));
 			disposables.add(toDisposable(this._sdkSession.on('permission.requested', async (event) => {
 				const permissionRequest = event.data.permissionRequest;
@@ -2170,6 +2182,83 @@ export class CopilotCLISession extends DisposableStore implements ICopilotCLISes
 		}
 		if (state && clearBuffer) {
 			state.mcEventBuffer.length = 0;
+		}
+	}
+
+	/**
+	 * Log a summary of interesting SDK session events to the extension log so
+	 * tool inputs/outputs (including sandboxed shell results) are visible
+	 * without needing to instrument the runtime.
+	 */
+	private _logSessionEvent(event: { type?: string; data?: unknown }): void {
+		const type = event.type;
+		if (!type) {
+			return;
+		}
+		// Tool/permission/assistant event payloads are heterogeneous unions in the
+		// SDK; access fields through a loose record cast so this helper can be
+		// shape-agnostic.
+		const data = (event.data ?? {}) as Record<string, unknown>;
+		const get = (...keys: string[]): unknown => {
+			for (const key of keys) {
+				const value = data[key];
+				if (value !== undefined) {
+					return value;
+				}
+			}
+			return undefined;
+		};
+		const getNested = (key: string, sub: string): unknown => {
+			const value = data[key];
+			return value && typeof value === 'object' ? (value as Record<string, unknown>)[sub] : undefined;
+		};
+		try {
+			switch (type) {
+				case 'tool.execution_started': {
+					const name = getNested('toolDescription', 'name') ?? get('toolName') ?? 'unknown';
+					const input = truncateForLog(JSON.stringify(get('input', 'arguments') ?? {}));
+					this.logService.info(`[CopilotCLISession] tool.execution_started ${name} input=${input}`);
+					break;
+				}
+				case 'tool.execution_complete': {
+					const name = getNested('toolDescription', 'name') ?? get('toolName', 'toolCallId') ?? 'unknown';
+					const success = get('success');
+					const sandboxed = get('sandboxed');
+					const result = data.result as Record<string, unknown> | undefined;
+					const content = truncateForLog(typeof result?.content === 'string' ? result.content : '');
+					const rawError = data.error;
+					const errorMessage = typeof rawError === 'string'
+						? rawError
+						: rawError && typeof rawError === 'object' && typeof (rawError as Record<string, unknown>).message === 'string'
+							? (rawError as { message: string }).message
+							: undefined;
+					if (errorMessage) {
+						this.logService.warn(`[CopilotCLISession] tool.execution_complete ${name} success=${success} sandboxed=${sandboxed} error=${errorMessage} content=${content}`);
+					} else {
+						this.logService.info(`[CopilotCLISession] tool.execution_complete ${name} success=${success} sandboxed=${sandboxed} content=${content}`);
+					}
+					break;
+				}
+				case 'permission.requested': {
+					const kind = getNested('permissionRequest', 'kind');
+					this.logService.info(`[CopilotCLISession] permission.requested kind=${kind}`);
+					break;
+				}
+				case 'assistant.message': {
+					const text = truncateForLog(typeof get('content', 'text') === 'string' ? get('content', 'text') as string : '');
+					this.logService.debug(`[CopilotCLISession] assistant.message ${text}`);
+					break;
+				}
+				case 'session.error':
+				case 'turn.error': {
+					this.logService.error(`[CopilotCLISession] ${type}: ${truncateForLog(JSON.stringify(data))}`);
+					break;
+				}
+				default:
+					this.logService.trace(`[CopilotCLISession] event ${type}`);
+			}
+		} catch (e) {
+			this.logService.warn(`[CopilotCLISession] _logSessionEvent failed for ${type}: ${e}`);
 		}
 	}
 

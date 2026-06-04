@@ -23,6 +23,33 @@ const ROOT = path.join(__dirname, '..', '..', '..');
 
 /** @type {(msg: string) => void} */
 let _log = console.log;
+let _verbose = false;
+
+/**
+ * Pretty-print a payload for verbose logs, truncating long strings.
+ * @param {unknown} obj
+ * @param {number} [maxLen]
+ */
+function _formatVerbose(obj, maxLen = 8000) {
+	let text;
+	try {
+		text = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+	} catch {
+		text = String(obj);
+	}
+	if (text.length > maxLen) {
+		text = text.slice(0, maxLen) + `… [truncated, ${text.length - maxLen} more chars]`;
+	}
+	return text;
+}
+
+/**
+ * Indent each line with the verbose prefix.
+ * @param {string} text
+ */
+function _indentVerbose(text) {
+	return text.split('\n').map(l => `[mock-llm]     ${l}`).join('\n');
+}
 
 // -- Scenario fixtures -------------------------------------------------------
 
@@ -730,6 +757,14 @@ function resolveCurrentTurn(turns, messages) {
  * @param {http.ServerResponse} res
  */
 async function handleChatCompletions(body, res) {
+	if (_verbose) {
+		_log(`[mock-llm]   chat/completions request body:`);
+		try {
+			_log(_indentVerbose(_formatVerbose(JSON.parse(body))));
+		} catch {
+			_log(_indentVerbose(_formatVerbose(body)));
+		}
+	}
 	let scenarioId = DEFAULT_SCENARIO;
 	let isScenarioRequest = false;
 	/** @type {string[]} */
@@ -978,6 +1013,14 @@ async function streamAnthropicContent(res, chunks, isScenarioRequest) {
  * @param {http.ServerResponse} res
  */
 async function handleMessagesApi(body, res) {
+	if (_verbose) {
+		_log(`[mock-llm]   /v1/messages request body:`);
+		try {
+			_log(_indentVerbose(_formatVerbose(JSON.parse(body))));
+		} catch {
+			_log(_indentVerbose(_formatVerbose(body)));
+		}
+	}
 	let scenarioId = DEFAULT_SCENARIO;
 	let isScenarioRequest = false;
 	/** @type {any[]} */
@@ -1227,11 +1270,14 @@ async function streamToolCalls(res, toolCalls, requestToolNames, scenarioId) {
 /**
  * Start the mock server and return a handle.
  * @param {number} port
- * @param {{ logger?: (msg: string) => void }} [options]
+ * @param {{ logger?: (msg: string) => void, verbose?: boolean }} [options]
  */
 function startServer(port = 0, options) {
 	if (options?.logger) {
 		_log = options.logger;
+	}
+	if (options?.verbose) {
+		_verbose = true;
 	}
 	return new Promise((resolve, reject) => {
 		let reqCount = 0;
